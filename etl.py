@@ -2,8 +2,10 @@ import configparser
 from datetime import datetime
 import os
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import udf
-from pyspark.sql.functions import year, month, dayofmonth, hour, weekofyear, date_format
+from pyspark.sql.functions import udf,row_number,desc
+from pyspark.sql.types import IntegerType
+from pyspark.sql.window import Window
+from pyspark.sql.functions import  year, month, dayofmonth, hour, weekofyear, date_format
 
 config = configparser.ConfigParser()
 config.read('dl.cfg')
@@ -22,7 +24,7 @@ def create_spark_session():
 
 def process_song_data(spark, input_data, output_data):
     # get filepath to song data file
-    song_data = input_data + "song_data"
+    song_data = input_data + config['AWS']['SONG_FILES']
     
     # read song data file
     df = spark.read.schema("`song_id` STRING,`num_songs` INT,`title` STRING,`artist_name` STRING,`artist_latitude` DOUBLE,"+
@@ -33,11 +35,14 @@ def process_song_data(spark, input_data, output_data):
     songs_table = df.select(["song_id","title","artist_id","year","duration"])
     
     # write songs table to parquet files partitioned by year and artist
-    songs_table.write.partitionBy("year","artist_id") \
-        .parquet("s3a://"+config['AWS']['OUTPUT_BUCKET']+"/"+config["TABLES"]["SONGS"])
+    songs_table.write.partitionBy("year","artist_id")\
+                    .parquet("s3a://"+config['AWS']['OUTPUT_BUCKET']+"/"+config["TABLES"]["SONGS"])
 
     # extract columns to create artists table
-    artists_table = df.select(["artist_id","artist_location","artist_latitude","artist_longitude"])
+    artists_table = df.select(["artist_id","artist_location","artist_latitude","artist_longitude"])\
+                                .withColumnRenamed("artist_location","location")\
+                                .withColumnRenamed("artist_latitude","latitude")\
+                                .withColumnRenamed("artist_longitude","longitude")
     
     # write artists table to parquet files
     artists_table.write.parquet("s3a://"+config['AWS']['OUTPUT_BUCKET']+"/"+config["TABLES"]["ARTISTS"])
@@ -45,19 +50,31 @@ def process_song_data(spark, input_data, output_data):
 
 def process_log_data(spark, input_data, output_data):
     # get filepath to log data file
-    log_data =
+    log_data = input_data + config['AWS']['SONG_FILES']
 
     # read log data file
-    df = 
-    
-    # filter by actions for song plays
-    df = 
+    df = spark.read.schema("`artist` STRING,`auth` STRING,`firstName` STRING,`gender` STRING," +
+                           "`itemInSession` INT,`lastName` STRING,`length` DOUBLE," +
+                           "`level` STRING,`location` STRING,`method` STRING,`page` STRING," +
+                           "`registration` DOUBLE,`sessionId` INT,`song` STRING,`status` SHORT," +
+                           "`ts` LONG,`userAgent` STRING,`userId` STRING") \
+            .json(log_data)
 
-    # extract columns for users table    
-    artists_table = 
-    
+    df.withColumn("userId",df["userId"].cast(IntegerType()))
+    # filter by actions for song plays
+    df = df.filter(df.page == "NextSong")
+
+    # extract columns for users table
+    latestlevel = Window.partitionBy("userId").orderBy(desc("ts"))
+    users_table = df.select(["userId","firstName","lastName","gender","level","ts"])
+    users_table = users_table.filter(users_table["userId"].isNotNull()).withColumn("U_LATEST",row_number().over(latestlevel))
+    users_table = users_table.filter(users_table["U_LATEST"] == 1).select(["userId","firstName","lastName","gender","level"])
+    users_table = users_table.withColumnRenamed("userId","user_Id")\
+        .withColumnRenamed("firstName","first_name")\
+        .withColumnRenamed("lastName","last_name")
+
     # write users table to parquet files
-    artists_table
+    users_table
 
     # create timestamp column from original timestamp column
     get_timestamp = udf()
