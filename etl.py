@@ -3,7 +3,7 @@ from datetime import datetime
 import os
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import udf,row_number,desc
-from pyspark.sql.types import IntegerType
+from pyspark.sql.types import IntegerType,TimestampType
 from pyspark.sql.window import Window
 from pyspark.sql.functions import  year, month, dayofmonth, hour, weekofyear, date_format
 
@@ -74,21 +74,25 @@ def process_log_data(spark, input_data, output_data):
         .withColumnRenamed("lastName","last_name")
 
     # write users table to parquet files
-    users_table
+    users_table.write.parquet("s3a://"+config['AWS']['OUTPUT_BUCKET']+"/"+config["TABLES"]["USERS"])
 
     # create timestamp column from original timestamp column
-    get_timestamp = udf()
-    df = 
-    
-    # create datetime column from original timestamp column
-    get_datetime = udf()
-    df = 
-    
+    get_timestamp = udf(lambda ts:datetime.fromtimestamp(ts/1000.0),TimestampType())
+    df = df.withColumn("rtimestamp",get_timestamp("ts"))
+
     # extract columns to create time table
-    time_table = 
-    
-    # write time table to parquet files partitioned by year and month
-    time_table
+    time_table = df.select(["ts", "rtimestamp"]).distinct() \
+        .withColumnRenamed("ts", "start_time") \
+        .withColumn("hour", hour(df["rtimestamp"])) \
+        .withColumn("day", dayofmonth(df["rtimestamp"])) \
+        .withColumn("week", weekofyear(df["rtimestamp"])) \
+        .withColumn("month", month(df["rtimestamp"])) \
+        .withColumn("year", year(df["rtimestamp"])) \
+        .withColumn("weekday", date_format(df["rtimestamp"], "E")) \
+        .select(["start_time", "hour", "day", "week", "month", "year", "weekday"]).distinct()
+
+        # write time table to parquet files partitioned by year and month
+    time_table.partitionBy("year","month").parquet("s3a://"+config['AWS']['OUTPUT_BUCKET']+"/"+config["TABLES"]["TIME"])
 
     # read in song data to use for songplays table
     song_df = 
