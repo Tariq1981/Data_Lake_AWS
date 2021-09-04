@@ -2,15 +2,14 @@ import configparser
 from datetime import datetime
 import os
 from pyspark.sql import SparkSession
-from pyspark.sql.functions import udf, col
+from pyspark.sql.functions import udf
 from pyspark.sql.functions import year, month, dayofmonth, hour, weekofyear, date_format
-
 
 config = configparser.ConfigParser()
 config.read('dl.cfg')
 
-os.environ['AWS_ACCESS_KEY_ID']=config['AWS_ACCESS_KEY_ID']
-os.environ['AWS_SECRET_ACCESS_KEY']=config['AWS_SECRET_ACCESS_KEY']
+os.environ['AWS_ACCESS_KEY_ID']=config['AWS']['AWS_ACCESS_KEY_ID']
+os.environ['AWS_SECRET_ACCESS_KEY']=config['AWS']['AWS_SECRET_ACCESS_KEY']
 
 
 def create_spark_session():
@@ -23,13 +22,15 @@ def create_spark_session():
 
 def process_song_data(spark, input_data, output_data):
     # get filepath to song data file
-    song_data = 
+    song_data = input_data + "song_data"
     
     # read song data file
-    df = 
+    df = spark.read.schema("`song_id` STRING,`num_songs` INT,`title` STRING,`artist_name` STRING,`artist_latitude` DOUBLE,"+
+                    "`year` INT,`duration` DOUBLE,`artist_id` STRING,`artist_longitude` DOUBLE,`artist_location` STRING")\
+            .json(song_data)
 
     # extract columns to create songs table
-    songs_table = 
+    songs_table = spark.select(["song_id","title","artist_id","year","duration"])
     
     # write songs table to parquet files partitioned by year and artist
     songs_table
@@ -86,7 +87,7 @@ def main():
     input_data = "s3a://udacity-dend/"
     output_data = ""
     
-    process_song_data(spark, input_data, output_data)    
+    process_song_data(spark, input_data, output_data)
     process_log_data(spark, input_data, output_data)
 
 
